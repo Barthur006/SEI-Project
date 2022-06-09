@@ -1,0 +1,567 @@
+---
+title: "Data Science Project"
+author: "KBDio"
+date: "5/30/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Abstract
+
+This project deals with various visualization techniques applied to a dataset to make it easy to draw conclusions about the data by looking at the plots. This project aims to explore information about Service Express (SEI) service, their customers and equipment they maintain. The SEI data consist of six different datasets that are linked together by various variables such as unique keys and item numbers. Finding the right questions and significant variables are important to unveil hidden information in this project. The results show that SEI have strong customer relations in the Midwest region. The challenging part of this project is the cleaning and exploring insights with little to no additional information about the company.
+
+
+### Introduction
+This project is focus on using statistical graphics and data visualization methods to convey information about service Express services.The three main objective of this work is to
+
+* Explore the Customer base
+* Explore Service Express Service
+* Explore information about their equipment maintenance
+
+```{r packages, warning=FALSE, echo=FALSE, messages=FALSE }
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(here)
+library(purrr)
+library(ggplot2)
+library(maps)
+library(mapdata)
+library(usmap)
+library(maptools)
+library(sp)
+library(mapview)
+```
+
+
+### Loading and cleaning of data
+
+```{r DATA,message=FALSE,echo=FALSE,warning=FALSE}
+#load all the necessary data for this work.
+agreement <- read_csv("C:/Users/Kanyanee/Documents/data/Shareable_AgreeAgreementMain.csv")
+equipment <- read_csv("C:/Users/Kanyanee/Documents/data/Shareable_AgreeEquipmentMain.csv")
+location  <- read_csv("C:/Users/Kanyanee/Documents/data/Shareable_AgreeLocationMain.csv")
+standard  <- read_csv("C:/Users/Kanyanee/Documents/data/Shareable_EquipmentStandardizationData.csv")
+ticket    <- read_csv("C:/Users/Kanyanee/Documents/data/Shareable_TicketCallMain.csv")
+tparts    <- read_csv("C:/Users/Kanyanee/Documents/data/Shareable_TicketPartsMain.csv")
+```
+
+For good visualization of data, the data must be cleaned before we plot any of the graphs, otherwise the plots would be displaying inaccurate/false information. The plot must show accurate information as they are used to draw important conclusion about the data. There are three areas of the data that needs tidying up and these are removing of all extra columns with missing values, removing the missing values at the latter rows and renaming, respelling and recoding of column variables and values.
+
+```{r cleaning, warning=FALSE , echo=FALSE}
+# I cleaned the data by deleting the NA in the latter rows of the data and
+#recode the Netpromoterstatus.
+N_agreement <- agreement %>%
+  filter(!is.na(AgrPkey))%>%
+  mutate(NetPromoterStatus = ifelse(grepl("Promoter",NetPromoterStatus),
+  "Promoter","Unproven"))%>%
+   mutate(
+         HQState= recode(HQState, "Oh"="OH"),
+         HQState= recode(HQState, "GR"="Other"),
+         HQState= recode(HQState, "ON"="Other"),
+         HQState= recode(HQState, "PO"="Other"))
+
+# I resigned NA to "$-" and "NULL" 
+N_equipment <- equipment%>%
+  mutate(across(c(Price,OriginalPrice)),na_if(.,"$-"),
+       ExpirationDate = na_if(ExpirationDate,"NULL"))
+
+# I removed X10 and X11 and the NA in the rows.
+N_location <- location%>%
+   filter(!is.na(AloPkey))%>%
+  select(-X10,-X11)%>%
+  mutate(across(where(is.character),~na_if(.,"NULL")))%>%
+    mutate(AloState= recode(AloState, "NJ"="NY"),
+         AloState= recode(AloState, "Oh"="OH"),
+         AloState= recode(AloState, "GR"="Other"),
+         AloState= recode(AloState, "ON"="Other"),
+         AloState= recode(AloState, "PO"="Other"))
+
+# Remove all Columns starting with X , since it contains NA values.
+N_standard <- standard%>%
+  filter(!is.na(PartNumber))%>%
+  select(!starts_with("X"))
+
+# replace all null with NA in the data.
+N_ticket <- ticket %>%
+  mutate(across(where(is.character), ~na_if(.,"NULL")))
+
+# Remove all unwanted columns from the data
+N_parts <- tparts%>%
+  filter(!is.na(PrimaryKey))%>%
+  select(!starts_with("X"))
+```
+
+
+### Implementation of graphs to explore more on Customer Base
+
+**Headquarters location**:From the data, we grouped the various headwaters of the company according to their location to find the location or state with the most number of SEI express service offices.From the exploratory analysis, we found out that Michigan had the most number of Head QuaRters offices of about 74 branches followed by OH, IL, and IN. This outcome is displayed in the bar graph and the map below.
+
+```{r warning=FALSE, echo=FALSE}
+N_agreement%>%
+  group_by(HQState)%>%
+  summarise(count= n())%>%
+  arrange(desc(count))%>%
+  ggplot(aes(x=fct_reorder(HQState,count),y=count,fill=HQState))+geom_bar(stat = "identity")+coord_flip()+
+  labs(title = "Graph that shows the States and their number of contracts ",x="HQ location in State")
+```
+
+```{r warning=FALSE, echo=FALSE}
+#HQ MAP
+#latitude and longtitude of cities
+cities=as_tibble(us.cities)
+cities$name=toupper(cities$name)
+
+#Customer head quater by city
+N_agreement$HQCity=toupper(N_agreement$HQCity)
+N_agreement$HQState=toupper(N_agreement$HQState)
+mapdata11=N_agreement%>%
+  mutate(name=paste(HQCity,HQState))
+
+mapdata12=mapdata11%>%
+  group_by(name)%>%
+  summarise(count=dplyr::n())%>%
+  arrange(desc(count))
+
+#Join the latitude and longitude with cities by name
+mapdata13=mapdata12%>%left_join(cities,by="name")
+mapdata13=subset(mapdata13, select = -c(pop,capital,country.etc) )
+
+mapdata14=na.omit(mapdata13)
+
+#ref: https://remiller1450.github.io/s230s19/Intro_maps.html
+MainStates <- map_data("state")
+
+StatePopulation <- read.csv("https://raw.githubusercontent.com/ds4stats/r-tutorials/master/intro-maps/data/StatePopulation.csv", as.is = TRUE)
+MergedStates <- inner_join(MainStates, StatePopulation, by = "region")
+
+#plot all states with ggplot
+MainCities <- filter(us.cities, long>=-130)
+
+g <- ggplot() + geom_polygon( data=MergedStates, aes(x=long, y=lat, group=group, fill = population/1000000), 
+                color="grey50", size = 0.1) +  #size=border line tickness
+                scale_fill_continuous(name="State Population", low = "white", 
+                high = "lightblue",limits = c(0,20000), breaks=c(), na.value = "grey50") 
+#+labs(title="Population (in millions) in the Mainland United States")
+
+g11 <- g +  geom_point(data=mapdata14, aes(x=long, y=lat, size = count), 
+            color = "blue", alpha = .5) + 
+            scale_size(name="Number of headquarter")+ 
+            theme_void() + ylim(20,50) + coord_map()+ #theme(legend.position="none")+
+            ggtitle("Customers' Headquarter map")+
+            theme(plot.title = element_text(hjust = 0.5))
+
+g11
+
+```
+
+
+**Industry**: One of the primary goals of most companies is to provide quality services and expand their operations across the states. In this work, we perform exploratory analysis to identify the various industries we provide services according to their number of operation. From the table, we realized that the unknown category of the industry appear to have the most frequency followed by Service, Health care, Manufacturing, Education, Retail, Government, Engineering, Finance, Wholesale and insurance.
+
+```{r warning=FALSE, echo=FALSE} 
+N_agreement%>%
+  group_by(Industry)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))%>%
+  knitr::kable()
+
+N_agreement%>%
+  group_by(Industry)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))%>%
+  ggplot(aes(x=fct_reorder(Industry,count),y=count,fill=Industry))+
+  geom_bar(stat="identity")+ coord_flip()+theme_light()+
+  labs(title = "Type of customer industry",x="Industry")+theme(legend.position = "none") #+ geom_text(aes(label=paste0(round(count/sum(count)*100), "%")))
+```
+
+
+**Billing analysis**:The plot below shows the different billing ways customers use to pay for their services rendered by SEI Express service. The bar plot displays the categorize of the billing types according to their frequency.The plot shows the frequency on the y-axis and the billing type on the x-axis. From the plot, we can see that the annual billing is the most preferred option, followed by quarterly, monthly and semi-annual in order of decreasing.
+
+```{r warning=FALSE, echo=FALSE}
+N_agreement%>%
+  group_by(InvoiceFrequency)%>%
+  summarise(Frequency = n())%>%
+  ggplot(aes(x="",y=Frequency,fill=InvoiceFrequency))+
+  geom_bar(stat="identity",width=1)+coord_polar("y", start=0) + 
+  geom_text(aes(label = paste0(round(Frequency/sum(Frequency)*100), "%")), position = position_stack(vjust = 0.5))+
+  theme_classic() + 
+  theme(axis.line = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          plot.title = element_text(hjust = 0.5, color = "#666666"))+
+  labs(x=NULL,Y=NULL,title = " Pie Chart displaying the billing information",
+  fill=" Billing type")
+```
+
+
+**Contract Duration**: The duration of contract secure SEI with income and job offer to continue the business. From the table below, we compared various contracts using their start and expired dates to understand difference that exist in their contract duration. The goal is to know the customer whose contract existed the longest.One of the objective of every company is to make profit and with the kind of services we render to our customer, the more contract length we have with our customers the more profit we make. Therefore, it is important to pay more attention to customers with longer contracts. The duration will help SEI to plan its business strategy for the company growth. Customer’s AgrPKey number 3623, 2078, 10905, and 10117 make the longest contract with SEI at approximately 5 years.
+
+```{r warning=FALSE, echo=FALSE}
+contract_table <- N_agreement %>%
+  select(AgrPkey,ContractStartDate,ContractExpirationDate)%>%
+  mutate(ContractStartDate = mdy(ContractStartDate),
+         ContractExpirationDate = mdy(ContractExpirationDate),
+         Difference =  ContractExpirationDate - ContractStartDate ,
+         Durration = as.duration(Difference))%>%
+  arrange(desc(Difference))%>%
+  slice(1:10)
+  knitr::kable(contract_table)
+
+```
+
+
+**Distribution of customer and their contract duration **: The plot shows the distribution of the date of customer registration, start of contract and contract expiration. As seen from the density plot below, there are to peaks of date start contract and expired contract of customers of SEI express Service. The first peak, represent the start date of contracts and it is evident that most contracts were issued or started around 2017.The second peak also represent the expiring date of customer's contracts, and most of the contracts ended in 2018.
+
+```{r warning=FALSE, echo=FALSE}
+N_agreement%>%
+    mutate(ContractStartDate = mdy(ContractStartDate),
+      ContractExpirationDate = mdy(ContractExpirationDate),
+      CustomerSinceDate = mdy(CustomerSinceDate))%>%
+    ggplot()+geom_density(aes(ContractStartDate,fill="Start Contract"),alpha = 0.3)+
+      geom_density(aes(ContractExpirationDate,fill= "Expired Contract"),alpha = 0.3)+
+      geom_density(aes(CustomerSinceDate,fill= "Registered Customer"),alpha = 0.3)+
+      labs(title = "Distribution of customer start the contract, the contract start/end years",
+      x="Years",fill="Date")+theme_light()
+```
+
+```{r explore3,echo=FALSE}
+# N_agreement%>%
+#   group_by(HQCity)%>%
+#   summarise(count= n())%>%
+#   arrange(desc(count))
+```
+
+
+### SEI service
+
+**Map of ticket calls by state**
+
+Knowing the service location is important for operation and enhancing the service. This will allow SEI to reach customer and provide its service in time without pausing production or service. A Heat map is used in this analysis to easily visualize the location and the volume of ticket events. The heat map of number of service ticket by state show that The volume of ticket event is significantly high in Indiana, Illinois, Ohio, and Michigan.
+ 
+
+```{r warning=FALSE, echo=FALSE}
+#1. Clean the data by Change state to upper case and trim only 2 letters of each state abbreviation. Then, group number of ticket call by state.
+N_ticket$State=toupper(N_ticket$State)  #to clean
+#trimws(N_ticket$State)  #to clean
+
+#ts= tickets by state
+ts = N_ticket%>% 
+  mutate(States=str_sub(State,2,3))%>%  #to clean
+  group_by(States)%>%
+  summarise(count=dplyr::n())%>%
+  arrange(desc(count))
+#sum(ts$count) #to check sum
+
+
+#2. Match state abbreviation with the full name to plot a map
+#write.csv(ts,"t_t2.txt", row.names = FALSE)#write text to check whitespaces and fronts
+dat=ts
+
+names(dat)[1] <-'state.abb'
+dat$states <- tolower(state.name[match(dat$state.abb,  state.abb)])
+
+#dat=na.omit(dat)   #clean
+#sum(dat$count)  #sum to check the total is = original data
+```
+
+3. plot the map
+
+
+#get the map and convert it to a SpatialPolygons:
+mapUSA <- map('state',  fill = TRUE,  plot = FALSE)
+nms <- sapply(strsplit(mapUSA$names,  ':'),  function(x)x[1])
+USApolygons <- map2SpatialPolygons(mapUSA,  IDs = nms,  CRS('+proj=longlat'))
+
+#now add the information from your data:
+idx <- match(unique(nms),  dat$states)
+dat2 <- data.frame(count = dat$count[idx], state = unique(nms))
+row.names(dat2) <- unique(nms)
+
+USAsp <- SpatialPolygonsDataFrame(USApolygons,  data = dat2)
+
+#plot it:
+spplot(USAsp['count'])
+
+
+
+--------------------------------------------------------------------------
+##### Map of ticket calls by city
+
+
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+#Clean the data by Change state and city to upper case, and trim white space. 
+#view(us.cities)
+N_ticket$City=toupper(N_ticket$City)  #to clean
+#trimws(N_ticket$City)  #to clean
+
+#write text file to check white space and front
+#test_t=N_ticket%>%select(City,State)
+#write.csv(test_t,"test.txt", row.names = FALSE)
+```
+
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+#Select only significant letters from state and city
+N_ticket2 = N_ticket%>%
+  mutate(State=str_sub(State,1,2))%>% 
+  mutate(City=str_sub(City,2,-2))
+
+#test_t=dat2%>%select(City,State) #write text to check space and front
+#write.csv(test_t,"test.txt", row.names = FALSE)
+```
+
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+#Create a new column called name that combines city and state name. So, we can merge the data (mapdata1)  with the dataset from the map library (cities). Then, group number of ticket call by city.
+mapdata1=N_ticket%>%
+  mutate(name=paste(City,State))
+
+mapdata2=mapdata1%>%
+  group_by(name)%>%
+  summarise(count=dplyr::n())%>%
+  arrange(desc(count))
+
+#test_t=mapdata1%>%select(City,State,name) #write text to check space and front
+#write.csv(test_t,"test.txt", row.names = FALSE)
+```
+
+
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+#Join the latitude and longitude with cities by name
+mapdata2$name=toupper(mapdata2$name)
+mapdata3=mapdata2%>%left_join(cities,by="name")
+
+DF=mapdata3
+DF=subset(DF, select = -c(pop,capital,country.etc) )
+
+mapdata4<- na.omit(mapdata3)
+```
+
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+mapdata3=na.omit(mapdata3)   #clean
+
+#sum(dat$count)  #sum to check the total is = original data
+#get the map and convert it to a SpatialPolygons:
+
+USA <- map_data("world")%>% filter(region=="USA")
+#data <- world.cities %>% filter(country.etc=="USA")
+
+data=mapdata3
+```
+
+
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+#ref: https://remiller1450.github.io/s230s19/Intro_maps.html
+MainStates <- map_data("state")
+
+StatePopulation <- read.csv("https://raw.githubusercontent.com/ds4stats/r-tutorials/master/intro-maps/data/StatePopulation.csv", as.is = TRUE)
+MergedStates <- inner_join(MainStates, StatePopulation, by = "region")
+
+#plot all states with ggplot
+MainCities <- filter(us.cities, long>=-130)
+# str(us.cities)
+# str(MainCities)
+
+g <- ggplot()
+g1 <- g + geom_polygon( data=MergedStates, aes(x=long, y=lat, group=group, fill = population/1000000), 
+                        color="black", size = 0.1) +  #size=border line tickness
+          scale_fill_continuous(name="State Population", low = "white", 
+          high = "lightblue",limits = c(0,20000), breaks=c(), na.value = "grey50") 
+#+labs(title="Population (in millions) in the Mainland United States")
+
+g2 <- g1 + geom_point(data=mapdata3, aes(x=long, y=lat, size = count), 
+           color = "gold", alpha = .5) + scale_size(name="City Population")
+g2
+```
+
+
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+library(viridis)
+ 
+# Left: use size and color
+g3 = g1 +geom_polygon(data = MergedStates, aes(x=long, y = lat, group = group), fill="grey", alpha=0.3) +
+  geom_point( data=data, aes(x=long, y=lat, size=count, color=count), alpha=.5) +
+  scale_size_continuous(range=c(1,12)) +
+  scale_color_viridis(trans="log") +
+  theme_void() + ylim(20,50) + coord_map()#+ theme(legend.position="none")
+
+g3
+
+g4 = g +geom_polygon(data = MergedStates, aes(x=long, y = lat, group = group), fill="grey", alpha=0.3) +
+  geom_point( data=data, aes(x=long, y=lat, size=count, color=count)) +
+  scale_size_continuous(range=c(1,12)) +
+  scale_color_viridis(trans="log") +
+  theme_void() + ylim(20,50) + coord_map()
+
+g4
+```
+
+
+**Type of maintenance**: The bar plot below shows the type of services the company renders to its customers. Maintenance is the most services the company offers followed by the billable and the software type of service.
+
+
+```{r warning=FALSE, echo=FALSE}
+N_ticket%>%
+  group_by(Type)%>%
+  summarise(count=n())%>%
+  ggplot(aes(x=fct_reorder(Type,count),y=count,fill=Type))+
+  geom_bar(stat ="identity")+scale_y_log10()+theme_minimal()+
+  coord_flip()+labs(x="Type of Maintenance",title ="Maintenance types") #+
+     #geom_text(aes(label=paste0(round(count/sum(count)*100), "%")))
+```
+
+
+**Services rendered and their cost**: One of the Objective of this project, is to explore the SEI services rendered to our customer and also understand the pricing of equipment parts used. The graph below shows the distribution of prices of equipment parts associated with the kind of services provided. The plots that maintenance is the most service rendered to our customers followed by billage and software respectively. Also I noticed that most of the price of were approaching zero , which implies that a frequency maintenance scheme issued in the initial contract.
+
+```{r warning=FALSE, echo=FALSE}
+tic <- N_ticket%>%
+  rename(PartNumber= EquipmentPartNumber,
+         ModelNumber= EquipmentModelNumber)
+  
+new_equip <- N_equipment%>%
+  inner_join(tic,by=c("PartNumber","ModelNumber"))%>%
+  mutate(OriginalPrice = as.numeric(str_remove(OriginalPrice,"[$]")),
+         Price = as.numeric(str_remove(Price,"[$]")),
+         New_price = ifelse(!is.na(Price),Price,OriginalPrice))
+    
+new_equip%>%
+  ggplot(aes(x= New_price,colour=Type))+
+  geom_freqpoly(na.rm = TRUE)+scale_y_log10()
+```
+
+
+**Location**: There are a lot of resources needed to help for an effective operation, and I would like to highlight one them which is the equipment model. We would like to know how often this material is used in various state, which you give an idea about how to sock our warehouse at different state. The table below shows the different combination of various model parts frequent usage at different states.
+
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+N_location%>%
+  rename(AloPKey =AloPkey)%>%
+  left_join(N_equipment,by="AloPKey")%>%
+  group_by(ModelNumber,AloState)%>%
+  summarise(count= n())%>%
+  arrange(desc(count))
+```
+
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+N_location%>%
+  group_by(AloState,PrimaryEngineer)%>%
+  summarise(count= n())%>%
+  arrange(desc(count),.by_group = TRUE)
+```
+
+
+**Manufacturing companies**: There are a lot of manufacturing companies that we business relationship with to provided the company with quality equipment parts for our operations. The plot below helps us to know the company we deem as priority, since we use a lot of their products. From the graph, it shows that HP is the company that produces a lot of our equipment part for maintenance and services.
+
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+N_standard%>%
+  group_by(Manufacturer)%>%
+  summarise(count=n())%>%
+  ggplot(aes(x=fct_reorder(Manufacturer,count),y=count,fill=Manufacturer))+
+  geom_bar(stat="identity")+coord_flip()+labs(title = "Manufacturer or supplier names", x="Manufacturers")+
+  theme(legend.position = "none")
+```
+
+
+**Cost of equipment used to service each company**
+This is to find how much does maintaining service cost for each company. Company with AgPKey number 8337 has the highest cost of service at $78,960. The company is in a service industry. The high cost but low frequency could be from the used parts are extremely expensive.
+
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+#Remove $ sign from price
+equip1=N_equipment%>%
+  mutate(newPrice=str_remove_all(Price, "[$]"))%>%  #to clean
+  mutate(newOriginalPrice=str_remove_all(OriginalPrice, "[$]"))
+
+#Change new prices from char to numeric
+equip1$newPrice <- as.numeric(equip1$newPrice)
+equip1$newOriginalPrice <- as.numeric(equip1$newOriginalPrice)
+
+#Create new column (newp) to merge 2 prices 
+equip1=equip1%>%mutate(newp = newPrice)
+
+#Replace na in newp with newOriginalPrice
+equip1$newp = ifelse(!(is.na(equip1$newp)), equip1$newp,equip1$newOriginalPrice)
+
+
+#Merge equipment with location to obtain AgrPKey
+price1 = equip1 %>% 
+  rename(EquipmentModelNumber=ModelNumber)%>% 
+  rename(EquipmentPartNumber=PartNumber)%>% 
+  mutate(cost=newp*Quantity)  %>%
+  select(AloPKey, EquipmentModelNumber,EquipmentPartNumber,newp, Quantity, cost)
+
+N_location2=N_location%>%
+  rename(AloPKey=AloPkey)
+
+price_EL=merge(price1, N_location2, by=c("AloPKey"))
+price_ELT=merge(price_EL, N_ticket, by=c("EquipmentModelNumber","EquipmentPartNumber"))
+price_ELTP=merge(price_ELT, N_parts, by=c("TicketNumber"))
+
+#Cost for maintaining by AloPKey
+price4 <- price_ELTP %>%
+  select(AloPKey.x, cost, newp, QuantityUsed) %>%
+  filter(!is.na(cost))%>%
+  group_by(AloPKey.x) %>%
+  summarise(TotalCost = sum(cost), count=n())%>%
+  slice(1:10)
+price4
+```
+
+##### Cost for maintaining by AgrPKey
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+p_agree=N_agreement%>%
+  rename(AgrPKey=AgrPkey)
+
+price5 = price_ELTP %>%
+  select(AgrPKey, cost, newp, QuantityUsed) %>%
+  filter(!is.na(cost))%>%
+  group_by(AgrPKey) %>%
+  summarise(TotalCost = sum(cost), count=n())%>%
+  mutate(AvgCostPerTicket=TotalCost/count)
+  
+```
+
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+ price_ELTPA1 = merge(price5, p_agree, by=c("AgrPKey"))%>%
+   mutate(ContractStartDate = mdy(ContractStartDate),
+          ContractExpirationDate = mdy(ContractExpirationDate),
+          CustomerSinceDate = mdy(CustomerSinceDate),
+          Difference =  ContractExpirationDate - ContractStartDate ,
+          Duration = as.duration(Difference))%>%
+          select(AgrPKey,TotalCost,count,CustomerSinceDate,ContractStartDate,
+          Duration,InvoiceFrequency,HQState,Industry)%>%
+          arrange(desc(as.integer(TotalCost)))%>%
+          slice(1:10)
+  price_ELTPA1
+
+  write.csv(price_ELTPA1,"test.txt", row.names = FALSE)
+```
+
+##### Average cost by service
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+sum(price5$TotalCost)/sum(price5$count)
+```
+
+
+**Distribution of the top 10 Equipment's Part** It is good to know what parts are important and used the most to be able to be prepared for future events. The graph below shows the equipment parts that has been frequently used the most for the services tickets. 
+
+```{r message=FALSE,warning=FALSE,echo=FALSE}
+N_ticket%>%
+    group_by(EquipmentPartNumber)%>%
+    summarise(count = n())%>%
+    arrange(desc(count))%>%
+    slice(1:10)%>%
+    ggplot(aes(x=fct_reorder(EquipmentPartNumber,count), y=count,
+               fill= EquipmentPartNumber))+geom_bar(stat = "identity")+
+  theme(axis.text.x = element_text(angle = 90))+
+  labs(x="Equipment Parts",title="Distribution of the top 10 Equipment's Part")
+```
+
+
+### Conclusion
+
+This project is to make exploratory analysis about customer information, SEI service and their equipment maintenance. This project reveals details of SEI services and some of the major objectives of the SEI services is revenue growth, and excellent customer service. SEI could attract more customers in new areas and new industries, and monitor the cost of maintenance and parts. Moreover, SEI could use these insights to plan its business strategy,  and the company growth and development.
+
+
+
